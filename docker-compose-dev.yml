@@ -1,0 +1,81 @@
+
+services:
+  payroll-web:
+    container_name: payroll-web
+    build: .
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8888"]
+    ports:
+      - "8888:8888"
+    depends_on:
+        - payroll-db
+    env_file:
+        - ./.env
+    networks:
+        - payroll-net
+    volumes:
+      - ./:/app
+
+
+  payroll-db:
+      container_name: payroll-db
+      image: postgres:${PG_VERSION:-16}
+      volumes:
+        - postgres_data:/var/lib/postgresql/data
+      environment:
+        - POSTGRES_DB=${DB_NAME}
+        - POSTGRES_USER=${DB_USER}
+        - POSTGRES_PASSWORD=${DB_PASSWORD}
+      networks:
+        - payroll-net
+
+
+  payroll-redis:
+    container_name: payroll-redis
+    image: "redis:alpine"
+    ports:
+      - "6379:6379"
+    volumes:
+      - payroll-redis-data:/data
+    networks:
+      - payroll-net
+    command: ["redis-server", "--appendonly", "yes"]
+
+  payroll-celery:
+    container_name: payroll-celery
+    build: .
+    command: ["celery", "-A", "payroll", "worker", "--loglevel=info"]
+    volumes:
+      - .:/app
+    depends_on:
+      - payroll-db
+      - payroll-redis
+    env_file:
+      - ./.env
+    environment:
+      - CELERY_BROKER_URL=redis://payroll-redis:6379/0
+    networks:
+      - payroll-net
+
+  payroll-flower:
+    build:
+      context: .
+    container_name: payroll-celery-flower
+    command: ["celery", "-A", "payroll", "flower", "--port=5000"]
+    ports:
+      - "5000:5000"
+    depends_on:
+      - payroll-redis
+      - payroll-celery
+    networks:
+      - payroll-net
+    environment:
+      - FLOWER_BASIC_AUTH=${FLOWER_USERNAME}:${FLOWER_PASSWORD}
+    env_file:
+      - ./.env
+
+networks:
+  payroll-net:
+
+volumes:
+  postgres_data:
+  payroll-redis-data:
